@@ -25,10 +25,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Your own photos on the drawer's square card, from an iCloud shared album with its public link turned on
- * (config.properties "icloud_album": the link, https://www.icloud.com/sharedalbum/#B0…). It reads the album as
- * icloud.com's own page does, without your Apple ID; Apple doesn't document this, so it may change one day.
- * Anyone with the link can see the album: make one just for the TV.
+ * Your own photos on the drawer's square card, from an iCloud shared album anyone with the link can open
+ * (config.properties "icloud_album"). Two kinds of links:
+ *  - iOS 26 and later: https://photos.icloud.com/shared/album/<key> ("Copy Link to Album", sharing option "Anyone
+ *    with the link"). Read through CloudKit as photos.icloud.com does: the key resolves to a public access token and
+ *    the album's server, whose zone lists every photo with a small JPEG (resJPEGThumbRes, ~340 × 510).
+ *  - Older: https://www.icloud.com/sharedalbum/#B0… ("Public Website"), read through the sharedstreams service.
+ * Neither is documented by Apple, so either may change one day. Anyone with the link can see the album: make one
+ * just for the TV.
  *
  * Up to 60 photos stay on disk, small (the card is 300 px); the album is checked every 30 minutes.
  */
@@ -70,14 +74,24 @@ final class Album {
         }
     }
 
-    /** The album's token: what follows "#" in its public link (or the token alone). */
+    /** The album's key: the last part of a photos.icloud.com link, or what follows "#" in an older one. */
     static String token() {
         String link = Config.ICLOUD_ALBUM.trim();
+        if (cloudKit()) {
+            String t = link.replaceAll("[?#].*$", "").replaceAll("/+$", "");
+            t = t.substring(t.lastIndexOf('/') + 1);
+            return t.matches("[0-9A-Za-z_-]{10,}") ? t : "";
+        }
         int hash = link.lastIndexOf('#');
         String t = hash >= 0 ? link.substring(hash + 1) : link;
         int end = t.indexOf(';');
         if (end >= 0) t = t.substring(0, end);
         return t.matches("[0-9A-Za-z]{10,}") ? t : "";
+    }
+
+    /** A photos.icloud.com link (iOS 26 and later). */
+    private static boolean cloudKit() {
+        return Config.ICLOUD_ALBUM.contains("photos.icloud.com/shared/");
     }
 
     static boolean configured() {
@@ -159,6 +173,10 @@ final class Album {
     }
 
     private void check() throws Exception {
+        if (cloudKit()) {
+            checkCloudKit();
+            return;
+        }
         String token = token();
         String base = "https://" + host(token) + "/" + token + "/sharedstreams/";
         JSONObject stream;
@@ -213,11 +231,113 @@ final class Album {
             }
         }
 
+        done(order, token);
+    }
+
+    private void done(List<String> order, String token) {
         guids = order;
         prune(order);
         checkedAt = System.currentTimeMillis();
         store.edit().putString("guids", android.text.TextUtils.join(",", order)).putString("token", token)
                 .putLong("checkedAt", checkedAt).apply();
+    }
+
+    // MARK: - photos.icloud.com (CloudKit)
+
+    private static final String CK = "/database/1/com.apple.photos.cloud/production/";
+
+    private void checkCloudKit() throws Exception {
+        String key = token();
+        // 1. The link's key → the album's zone, a public access token (20 minutes) and the server that holds it.
+        JSONObject body = new JSONObject().put("shortGUIDs", new JSONArray().put(new JSONObject().put("value", key)));
+        JSONObject resolved = post("https://ckdatabasews.icloud.com" + CK + "public/records/resolve?remapEnums=true&sharing_url_key=" + key,
+                body.toString());
+        JSONArray results = resolved.optJSONArray("results");
+        JSONObject r = results == null ? null : results.optJSONObject(0);
+        JSONObject access = r == null ? null : r.optJSONObject("anonymousPublicAccess");
+        if (r == null || access == null || r.optJSONObject("zoneID") == null) {
+            throw new IOException("album not found (is it shared with \"Anyone with the link\"?)");
+        }
+        String server = access.optString("databasePartition", "https://ckdatabasews.icloud.com").replace(":443", "");
+        String url = server + CK + "shared/changes/zone?remapEnums=true&sharing_url_key=" + key
+                + "&publicAccessAuthToken=" + java.net.URLEncoder.encode(access.optString("token"), "UTF-8");
+
+        // 2. Every record in the album's zone, a page at a time: photos (CPLMaster) and their entries (CPLAsset).
+        List<JSONObject> masters = new ArrayList<>();
+        Set<String> shown = new HashSet<>();
+        boolean anyAsset = false;
+        String sync = null;
+        for (int page = 0; page < 20; page++) {
+            JSONObject zone = new JSONObject().put("zoneID", r.getJSONObject("zoneID")).put("resultsLimit", 200);
+            if (sync != null) zone.put("syncToken", sync);
+            JSONObject reply = post(url, new JSONObject().put("zones", new JSONArray().put(zone)).toString());
+            JSONObject z = reply.optJSONArray("zones") == null ? null : reply.getJSONArray("zones").optJSONObject(0);
+            if (z == null) break;
+            JSONArray records = z.optJSONArray("records");
+            for (int i = 0; records != null && i < records.length(); i++) {
+                JSONObject rec = records.optJSONObject(i);
+                if (rec == null || rec.optBoolean("deleted")) continue;
+                String type = rec.optString("recordType");
+                JSONObject f = rec.optJSONObject("fields");
+                if (f == null) continue;
+                if ("CPLMaster".equals(type)) {
+                    masters.add(rec);
+                } else if ("CPLAsset".equals(type)) {
+                    anyAsset = true;
+                    boolean hidden = value(f, "isHidden") == 1 || value(f, "trashReason") > 0;
+                    JSONObject ref = f.optJSONObject("masterRef");
+                    String master = ref == null || ref.optJSONObject("value") == null ? "" : ref.getJSONObject("value").optString("recordName");
+                    if (!hidden && !master.isEmpty()) shown.add(master);
+                }
+            }
+            sync = z.optString("syncToken", null);
+            if (!z.optBoolean("moreComing")) break;
+        }
+
+        // Newest first; videos and photos taken out of the album are left out.
+        List<JSONObject> photos = new ArrayList<>();
+        for (JSONObject m : masters) {
+            JSONObject f = m.getJSONObject("fields");
+            String item = f.optJSONObject("itemType") == null ? "" : f.getJSONObject("itemType").optString("value");
+            if (item.contains("movie") || item.contains("video") || item.contains("mpeg")) continue;
+            if (anyAsset && !shown.contains(m.optString("recordName"))) continue;
+            if (download(f) == null) continue;
+            photos.add(m);
+        }
+        Collections.sort(photos, (a, b) -> Double.compare(value(b.optJSONObject("fields"), "originalCreationDate"),
+                value(a.optJSONObject("fields"), "originalCreationDate")));
+        List<String> order = new ArrayList<>();
+        int fetched = 0;
+        for (JSONObject m : photos) {
+            if (order.size() >= KEEP) break;
+            String guid = m.optString("recordName").replaceAll("[^A-Za-z0-9_-]", "_");
+            if (guid.isEmpty()) continue;
+            order.add(guid);
+            if (file(guid).exists() || fetched >= NEW_PER_CHECK) continue;
+            fetched++;
+            try {
+                download(download(m.getJSONObject("fields")), file(guid));
+            } catch (IOException e) {
+                AppLog.w("album: download: " + e.getMessage());
+            }
+        }
+        done(order, key);
+    }
+
+    /** The small JPEG's link (the medium one if the small one is missing), or null. */
+    private static String download(JSONObject fields) {
+        for (String res : new String[] {"resJPEGThumbRes", "resJPEGMedRes"}) {
+            JSONObject o = fields.optJSONObject(res);
+            JSONObject v = o == null ? null : o.optJSONObject("value");
+            String url = v == null ? "" : v.optString("downloadURL", "");
+            if (!url.isEmpty()) return url.replace("${f}", "photo.jpg");
+        }
+        return null;
+    }
+
+    private static double value(JSONObject fields, String name) {
+        JSONObject o = fields == null ? null : fields.optJSONObject(name);
+        return o == null ? 0 : o.optDouble("value", 0);
     }
 
     /** The checksum of the smallest version at least WANT px wide (else the largest). */
@@ -249,7 +369,8 @@ final class Album {
         c.setRequestMethod("POST");
         c.setDoOutput(true);
         c.setRequestProperty("Content-Type", "text/plain");
-        c.setRequestProperty("Origin", "https://www.icloud.com");
+        // The page each service expects to be called from.
+        c.setRequestProperty("Origin", url.contains("ckdatabasews") ? "https://photos.icloud.com" : "https://www.icloud.com");
         try {
             try (OutputStream out = c.getOutputStream()) {
                 out.write(json.getBytes(StandardCharsets.UTF_8));
