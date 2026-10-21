@@ -122,7 +122,7 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[12];
+        private final Spring[] pop = new Spring[16];   // the longest list: Home Settings, up to 14 rows
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -132,7 +132,7 @@ public class SettingsActivity extends Activity {
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
         private static final int PICK_CITY = 0;
         private final List<String[]> cities = new ArrayList<>();
-        private String cityStatus = "";
+        private String cityStatus = "", childStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
@@ -252,6 +252,9 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_CHOICE) {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
                 height = CHOICE_H;
+            } else if (screen == HOME_SETTINGS) {
+                top = LIST_TOP + 20 + row * settingsPitch();
+                height = settingsPitch() - LIST_ROW_GAP;
             } else {
                 top = LIST_TOP + 20 + row * (LIST_ROW_H + LIST_ROW_GAP);
                 height = LIST_ROW_H;
@@ -626,8 +629,16 @@ public class SettingsActivity extends Activity {
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru", "fr"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         private static final String[] SCREENSAVERS = {"nature", "films", "both"};
-        /** Home Settings: language, temperature, theme, screensaver, weather, city, quotes, then one row per coin. */
-        private static final int SAVER_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, QUOTES_ROW = 6, COIN_ROWS = 7;
+        /** Home Settings: language, temperature, theme, screensaver, weather, city, quote of the day, age counter, photos,
+         * quotes, then one row per coin. */
+        private static final int SAVER_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, DAILY_ROW = 6, CHILD_ROW = 7, PHOTOS_ROW = 8,
+                QUOTES_ROW = 9, COIN_ROWS = 10;
+
+        /** Home Settings rows get shorter when there are many, so the list and its hint stay on screen. */
+        private float settingsPitch() {
+            int rows = settingLabels().length;
+            return Math.min(LIST_ROW_H + LIST_ROW_GAP, (1080 - 60 - 60 - LIST_TOP - 20) / (float) Math.max(1, rows));
+        }
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -641,6 +652,9 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Tela de descanso", "Screensaver", "Salvapantallas"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
+            l.add(Ui.tr("Frase do dia", "Quote of the day", "Frase del día"));
+            l.add(Ui.tr("Contador de idade", "Age counter", "Contador de edad"));
+            l.add(Ui.tr("Fotos do iCloud", "iCloud photos", "Fotos de iCloud"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -665,6 +679,10 @@ public class SettingsActivity extends Activity {
                     : Ui.tr("Os dois", "Both", "Ambos");
             v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
+            v[DAILY_ROW] = onOff(Prefs.daily());
+            v[CHILD_ROW] = !childStatus.isEmpty() ? childStatus : Prefs.childName().isEmpty() ? "—"
+                    : Prefs.childName() + ", " + Daily.birthLabel(Prefs.childBirth());
+            v[PHOTOS_ROW] = !Album.configured() ? Ui.tr("Sem álbum", "No album", "Sin álbum") : onOff(Prefs.photos());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -744,6 +762,12 @@ public class SettingsActivity extends Activity {
                 }
                 case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
+                case DAILY_ROW: Prefs.setDaily(!Prefs.daily()); break;
+                case CHILD_ROW: return;
+                case PHOTOS_ROW:
+                    if (!Album.configured()) return;
+                    Prefs.setPhotos(!Prefs.photos());
+                    break;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
                     if (!Prefs.quotes()) return;
@@ -771,6 +795,58 @@ public class SettingsActivity extends Activity {
                 return true;
             });
             dialog.show();
+        }
+
+        /** The age counter: a first name and a birth date (day first). Stays on the TV. An empty name turns it off. */
+        private void askChild() {
+            android.widget.LinearLayout box = new android.widget.LinearLayout(activity);
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            int pad = Math.round(24 * k);
+            box.setPadding(pad, pad / 2, pad, 0);
+            EditText name = new EditText(activity);
+            name.setSingleLine(true);
+            name.setHint(Ui.tr("Nome", "First name", "Nombre"));
+            name.setText(Prefs.childName());
+            EditText birth = new EditText(activity);
+            birth.setSingleLine(true);
+            birth.setHint(Ui.tr("Nascimento: DD/MM/AAAA", "Born on: DD/MM/YYYY", "Nacimiento: DD/MM/AAAA"));
+            birth.setInputType(android.text.InputType.TYPE_CLASS_DATETIME | android.text.InputType.TYPE_DATETIME_VARIATION_DATE);
+            String saved = Prefs.childBirth();
+            if (saved.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                birth.setText(saved.substring(8, 10) + "/" + saved.substring(5, 7) + "/" + saved.substring(0, 4));
+            }
+            box.addView(name);
+            box.addView(birth);
+            AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle(Ui.tr("Contador de idade", "Age counter", "Contador de edad"))
+                    .setView(box)
+                    .setPositiveButton(Ui.tr("Salvar", "Save", "Guardar"), (d, which) -> saveChild(name.getText().toString(), birth.getText().toString()))
+                    .setNegativeButton(Ui.tr("Cancelar", "Cancel"), null);
+            if (!Prefs.childName().isEmpty()) {
+                b.setNeutralButton(Ui.tr("Remover", "Remove", "Quitar"), (d, which) -> {
+                    Prefs.setChild("", "");
+                    invalidate();
+                });
+            }
+            b.create().show();
+        }
+
+        private void saveChild(String typedName, String typedBirth) {
+            String name = typedName.trim();
+            if (name.isEmpty()) {
+                Prefs.setChild("", "");
+                invalidate();
+                return;
+            }
+            String birth = Daily.parseBirth(typedBirth);
+            if (birth == null || Daily.age(birth, System.currentTimeMillis()) == null) {
+                childStatus = Ui.tr("Data inválida", "Invalid date", "Fecha no válida");
+                invalidate();
+                handler.postDelayed(() -> { childStatus = ""; invalidate(); }, 4000);
+                return;
+            }
+            Prefs.setChild(name.length() > 24 ? name.substring(0, 24) : name, birth);
+            invalidate();
         }
 
         private void searchCity(String name) {
@@ -937,9 +1013,10 @@ public class SettingsActivity extends Activity {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : Ui.tr("Ajustes do Início", "Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            float pitch = keys ? LIST_ROW_H + LIST_ROW_GAP : settingsPitch();
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                float y = (LIST_TOP + 20 + i * pitch) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + (pitch - LIST_ROW_GAP) * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
@@ -950,7 +1027,7 @@ public class SettingsActivity extends Activity {
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            float hy = (LIST_TOP + 20 + labels.length * pitch + 36) * k;
             c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video e Google Play: a própria TV controla esses botões.",
@@ -992,6 +1069,9 @@ public class SettingsActivity extends Activity {
                 openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
                 askCity();
+                return;
+            } else if (screen == HOME_SETTINGS && focus == CHILD_ROW) {
+                askChild();
                 return;
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);

@@ -105,6 +105,22 @@ final class Prefs {
     }
     static void setScreensaver(String v) { put("screensaver", v); }
 
+    /** The drawer's "Today" card: the quote of the day. */
+    static boolean daily() { return sp().getBoolean("daily", true); }
+    static void setDaily(boolean on) { put("daily", on); }
+
+    /** The age counter: a first name and a "yyyy-MM-dd" birth date, set on the TV ("" = off). Only on the TV. */
+    static String childName() { return sp().getString("childName", ""); }
+    static String childBirth() { return sp().getString("childBirth", ""); }
+    static void setChild(String name, String birth) {
+        sp().edit().putString("childName", name).putString("childBirth", birth).apply();
+        version++;
+    }
+
+    /** The drawer's photo card (an iCloud shared album, Album). */
+    static boolean photos() { return sp().getBoolean("photos", true); }
+    static void setPhotos(boolean on) { put("photos", on); }
+
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
 

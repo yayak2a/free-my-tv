@@ -36,10 +36,21 @@ final class HomeData {
     /** Binance quotes dollars as USDT. */
     private static final String QUOTE = CURRENCY.equals("USD") ? "USDT" : CURRENCY;
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
-            + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
+            + "&hourly=temperature_2m,weather_code,is_day&minutely_15=precipitation&forecast_minutely_15=12"
+            + "&timezone=auto&forecast_days=2";
+    /** Air quality and pollen (Open-Meteo too, no key; pollen only in Europe, in season). */
+    private static final String AIR_QUERY = "&current=european_aqi,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,"
+            + "olive_pollen,ragweed_pollen&timezone=auto";
+    static final String[] POLLENS = {"alder", "birch", "grass", "mugwort", "olive", "ragweed"};
+    /** Rain at least this heavy (mm in 15 min) counts. */
+    private static final double RAIN_MM = 0.1;
 
     private static String weatherPlace() {
         return Prefs.latitude() + "," + Prefs.longitude();
+    }
+
+    private static String airUrl() {
+        return "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" + Prefs.latitude() + "&longitude=" + Prefs.longitude() + AIR_QUERY;
     }
 
     private static String weatherUrl() {
@@ -98,6 +109,13 @@ final class HomeData {
         final List<Double> hourTemp = new ArrayList<>();
         final List<Integer> hourCode = new ArrayList<>();
         final List<Boolean> hourDay = new ArrayList<>();
+        // The next 3 hours in 15-minute steps: when the rain starts (or, if raining, stops). 0 = not in that window.
+        boolean raining;
+        long rainStarts, rainStops;
+        // European air quality index (0 good … 100+ extremely poor), -1 = unknown; the strongest pollen (index in
+        // POLLENS, -1 = none) and its grains per m³.
+        int aqi = -1, pollen = -1;
+        double pollenGrains;
     }
 
     private static HomeData instance;
@@ -131,7 +149,12 @@ final class HomeData {
             String w = cache.getString("weather", null);
             // The cached forecast is for the city it was fetched for; another city means fetch again.
             if (w != null && weatherPlace().equals(cache.getString("weatherPlace", ""))) {
-                weather = parseWeather(w);
+                Weather parsed = parseWeather(w);
+                String air = cache.getString("air", null);
+                if (air != null) {
+                    try { parseAir(parsed, air); } catch (Exception ignored) {}
+                }
+                weather = parsed;
                 weatherAt = cache.getLong("weatherAt", 0);
             }
         } catch (Exception ignored) {}
@@ -166,9 +189,17 @@ final class HomeData {
             io.execute(() -> {
                 try {
                     String body = get(weatherUrl());
-                    weather = parseWeather(body);
+                    Weather w = parseWeather(body);
+                    String air = null;
+                    try {
+                        air = get(airUrl());
+                        parseAir(w, air);
+                    } catch (Exception e) {
+                        AppLog.w("air quality: " + e.getMessage());
+                    }
+                    weather = w;
                     weatherAt = System.currentTimeMillis();
-                    cache.edit().putString("weather", body).putLong("weatherAt", weatherAt).putString("weatherPlace", weatherPlace()).apply();
+                    cache.edit().putString("weather", body).putString("air", air).putLong("weatherAt", weatherAt).putString("weatherPlace", weatherPlace()).apply();
                     notifyListeners();
                 } catch (Exception e) {
                     weatherFailedAt = System.currentTimeMillis();
@@ -236,7 +267,38 @@ final class HomeData {
                 w.hourDay.add(days == null || days.optInt(i, 1) == 1);
             }
         }
+        JSONObject quarter = o.optJSONObject("minutely_15");
+        if (quarter != null) {
+            JSONArray times = quarter.optJSONArray("time"), rain = quarter.optJSONArray("precipitation");
+            long now = System.currentTimeMillis();
+            Boolean wet = null;
+            for (int i = 0; times != null && rain != null && i < times.length(); i++) {
+                long at = localTime(times.getString(i), zone);
+                if (at + 15 * 60_000L <= now) continue;   // this quarter is over
+                boolean r = rain.optDouble(i, 0) >= RAIN_MM;
+                if (wet == null) {
+                    wet = r;
+                    w.raining = r;
+                    if (r) continue;
+                }
+                if (!w.raining && r) { w.rainStarts = Math.max(at, now); break; }
+                if (w.raining && !r) { w.rainStops = at; break; }
+            }
+        }
         return w;
+    }
+
+    private static void parseAir(Weather w, String body) throws Exception {
+        JSONObject current = new JSONObject(body).getJSONObject("current");
+        w.aqi = current.isNull("european_aqi") ? -1 : (int) Math.round(current.optDouble("european_aqi", -1));
+        for (int i = 0; i < POLLENS.length; i++) {
+            String key = POLLENS[i] + "_pollen";
+            double g = current.isNull(key) ? 0 : current.optDouble(key, 0);
+            if (g > w.pollenGrains) {
+                w.pollenGrains = g;
+                w.pollen = i;
+            }
+        }
     }
 
     private static long localTime(String iso, TimeZone zone) throws ParseException {
@@ -438,6 +500,41 @@ final class HomeData {
     static String hour(long at) {
         return Ui.once("hour", at, () -> Ui.en ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
                 : new SimpleDateFormat(Ui.es || Ui.ru ? "HH:mm" : Ui.de ? "HH 'Uhr'" : "HH'h'", Ui.locale()).format(new java.util.Date(at)));
+    }
+
+    // MARK: - Rain, air and pollen in words
+
+    /** "Rain around 20:40", "Rain until 21:15", "Rain for the next hours", or "" (dry for the next 3 hours). */
+    static String rainText(Weather w) {
+        long now = System.currentTimeMillis();
+        if (w.raining) {
+            if (w.rainStops == 0) return Ui.tr("Chuva nas próximas horas", "Rain for the next hours", "Lluvia las próximas horas");
+            return Ui.tr("Chuva até ", "Rain until ", "Lluvia hasta las ") + Ui.time(w.rainStops);
+        }
+        if (w.rainStarts == 0 || w.rainStarts - now > 3 * 3600_000L) return "";
+        if (w.rainStarts - now < 10 * 60_000L) return Ui.tr("Chuva em instantes", "Rain any minute", "Lluvia en unos minutos");
+        return Ui.tr("Chuva por volta de ", "Rain around ", "Lluvia hacia las ") + Ui.time(w.rainStarts);
+    }
+
+    /** "Air: good" … "Air: extremely poor" (European AQI bands), or "" when unknown. */
+    static String airText(Weather w) {
+        if (w.aqi < 0) return "";
+        String band = w.aqi <= 20 ? Ui.tr("boa", "good", "buena") : w.aqi <= 40 ? Ui.tr("razoável", "fair", "aceptable")
+                : w.aqi <= 60 ? Ui.tr("moderada", "moderate", "moderada") : w.aqi <= 80 ? Ui.tr("ruim", "poor", "mala")
+                : w.aqi <= 100 ? Ui.tr("muito ruim", "very poor", "muy mala") : Ui.tr("péssima", "extremely poor", "pésima");
+        return Ui.tr("Ar: ", "Air: ", "Aire: ") + band;
+    }
+
+    /** The strongest pollen when it counts (10 grains/m³ or more): "Birch pollen: high", or "". Rough bands. */
+    static String pollenText(Weather w) {
+        if (w.pollen < 0 || w.pollenGrains < 10) return "";
+        String[] pt = {"amieiro", "bétula", "gramíneas", "artemísia", "oliveira", "ambrósia"};
+        String[] en = {"Alder", "Birch", "Grass", "Mugwort", "Olive", "Ragweed"};
+        String[] es = {"aliso", "abedul", "gramíneas", "artemisa", "olivo", "ambrosía"};
+        int i = w.pollen;
+        String level = w.pollenGrains < 50 ? Ui.tr("moderado", "moderate", "moderado")
+                : w.pollenGrains < 200 ? Ui.tr("alto", "high", "alto") : Ui.tr("muito alto", "very high", "muy alto");
+        return Ui.tr("Pólen de " + pt[i] + ": ", en[i] + " pollen: ", "Polen de " + es[i] + ": ") + level;
     }
 
     /** How long ago the data was fetched, if it's stale (no internet): "12 min ago". */

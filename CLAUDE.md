@@ -158,6 +158,11 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   Access Key in `unsplash_key`; never the Secret Key), or both, per *Home Settings* → *Screensaver*
   (`Prefs.screensaver`). Unsplash's rules: credit the photographer on screen and report each kept photo to its
   `download_location` once. The key follows the TMDB key's rules: theirs, never printed or committed.
+- The bottom drawer's cards: weather (with rain in the next 3 hours, air quality and pollen, all Open-Meteo, no key),
+  quotes, *Today* (`Daily`: a built-in French quote of the day and a child's age from a name and birth date typed on
+  the TV, never in config.properties) and the photo card (`Album`: an iCloud shared album's public link in
+  `icloud_album`, read like icloud.com's page; undocumented by Apple). The weather takes the room the others leave;
+  when the row is too full the photo card goes first, then *Today*.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and

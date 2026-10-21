@@ -53,12 +53,13 @@ import java.util.function.Consumer;
  *  - at the bottom, the glass shelf with the apps (icons in each brand's color, like the tvOS Dock; the focused one
  *    grows);
  *  - ↓ on the shelf: everything moves up and the bottom drawer appears (inputs, shortcuts, weather for the next hours
- *    and quotes with the 24 h change); the background lightens (darkens at night). ↑ or Back closes it;
+ *    with rain, air and pollen, quotes with the 24 h change, today's quote and a child's age, and your photos from an
+ *    iCloud shared album); the background lightens (darkens at night). ↑ or Back closes it;
  *  - from sunset to sunrise, a night look: dark background, smoked glass and white text.
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener, Album.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -204,7 +205,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int drawerInputs;          // how many leading items are inputs (the rest are shortcuts)
     private Spring[] drawerFocus = new Spring[0];
     private RectF[] drawerRects = new RectF[0];
-    private final RectF weatherCard = new RectF(), quotesCard = new RectF();
+    private final RectF weatherCard = new RectF(), quotesCard = new RectF(), todayCard = new RectF(), photoCard = new RectF();
+    private boolean todayOn, photoOn, quotesOn;   // the drawer cards laid out (room allowing)
+    private int weatherHours = 6;
+    // The photo card: the photo shown, the one fading out, and when the next one is due.
+    private static final long PHOTO_EVERY = 60_000, PHOTO_FADE = 900;
+    private Bitmap photoNow, photoOld;
+    private BitmapShader photoNowShader, photoOldShader;
+    private long photoFadeAt, photoNextAt;
+    private boolean photoLoading;
+    private final Album album;
     private final Spring drawer = new Spring(0.46f, 0.92f, 0);
     private boolean drawerOpen;
     private int drawerIndex;
@@ -344,6 +354,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             data.refreshIfStale();
             recs.refreshIfStale();
             refreshNature();
+            album.refreshIfStale();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -357,6 +368,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        album = Album.get(a);
         click = new Click(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
@@ -414,6 +426,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         data.refreshIfStale();
         recs.refreshIfStale();
         refreshNature();
+        album.addListener(this);
+        album.refreshIfStale();
+        if (photoNow == null) nextPhoto();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -440,6 +455,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
+        album.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -496,6 +512,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     @Override public void onRecs() {
         wake();
         updatePicks();
+    }
+
+    @Override public void onAlbum() {
+        wake();
+        boolean was = photoOn;
+        layoutDrawer();
+        if (photoNow == null || was != photoOn) nextPhoto();
     }
 
     private void invalidateAll() {
@@ -655,6 +678,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroFading = tickHeroFade(up);
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
+        boolean photoFading = tickPhoto(up);
 
         if (drawerMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
@@ -664,7 +688,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (tilesMoving || tilesDirty) tiles.invalidate();
         if (statusMoving || statusDirty || bgFading) status.invalidate();
         if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
-        if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
+        if (drawerItemsMoving || drawerDirty || bgFading || photoFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
         if (drawerMoving || bgFading) sky.invalidate();
         if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
@@ -1444,11 +1468,39 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             x += tw + gap;
         }
-        float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
-        boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
-        // A card that is off gives its room to the other one.
-        weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
-        quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
+        float cardsTop = CARDS_TOP * k, bottom = cardsTop + CARDS_H * k, cardGap = 32 * k;
+        boolean wx = Prefs.weather();
+        quotesOn = Prefs.quotes() && HomeData.active().length > 0;
+        todayOn = Prefs.daily() || (!Prefs.childName().isEmpty() && Daily.age(Prefs.childBirth(), System.currentTimeMillis()) != null);
+        photoOn = Prefs.photos() && Album.configured() && album.count() > 0;
+        // Fixed widths for the quotes, today and photo (square) cards; the weather takes the rest. When the row is
+        // too full, the photo goes first, then today's card.
+        float quotesW = 640 * k, todayW = 560 * k, photoW = CARDS_H * k, minWeather = 600 * k;
+        for (int pass = 0; pass < 3; pass++) {
+            float fixed = (quotesOn ? quotesW + cardGap : 0) + (todayOn ? todayW + cardGap : 0) + (photoOn ? photoW + cardGap : 0);
+            if (!wx || right - left - fixed >= minWeather) break;
+            if (photoOn) photoOn = false;
+            else if (todayOn) todayOn = false;
+        }
+        float cx = left;
+        float weatherW = (right - left) - (quotesOn ? quotesW + cardGap : 0) - (todayOn ? todayW + cardGap : 0) - (photoOn ? photoW + cardGap : 0);
+        if (wx) {
+            weatherCard.set(cx, cardsTop, cx + weatherW, bottom);
+            cx += weatherW + cardGap;
+        }
+        if (!wx && !todayOn && !photoOn) quotesW = right - left;   // alone, it takes the whole row
+        if (quotesOn) {
+            quotesCard.set(cx, cardsTop, cx + quotesW, bottom);
+            cx += quotesW + cardGap;
+        }
+        if (todayOn) {
+            if (!wx && !photoOn) todayW = right - cx;
+            todayCard.set(cx, cardsTop, cx + todayW, bottom);
+            cx += todayW + cardGap;
+        }
+        if (photoOn) photoCard.set(right - photoW, cardsTop, right, bottom);
+        // The hours that fit beside the current conditions (6 on a wide card, fewer on a narrow one).
+        weatherHours = Math.max(2, Math.min(6, (int) ((weatherCard.width() - 422 * k) / (72 * k))));
         drawerDirty = true;
     }
 
@@ -1511,7 +1563,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
-        if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+        if (quotesOn) drawQuotesCard(c, quotesCard);
+        if (todayOn) drawTodayCard(c, todayCard);
+        if (photoOn) drawPhotoCard(c, photoCard);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1574,20 +1628,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
-        float hx = split + 30 * k, hw = (r.right - 30 * k - hx) / 6;
-        for (int i = 0; i < wx.hours.size() && i < 6; i++) {
+        float hx = split + 30 * k, hw = (r.right - 30 * k - hx) / weatherHours;
+        for (int i = 0; i < wx.hours.size() && i < weatherHours; i++) {
             float hc = hx + hw * (i + 0.5f);
             c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
             Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
             c.drawText(hourTempText[i], hc, r.top + 196 * k, hourTemp);
         }
-        float sx = hx, base = r.top + 258 * k;
-        if (wx.sunrise != 0) sx = sunItem(c, "sunrise", sunriseText, sx, base) + 36 * k;
-        if (wx.sunset != 0) sunItem(c, "sunset", sunsetText, sx, base);
+        // Bottom line: rain soon, pollen and air first (what changes plans), then sunrise and sunset, as room allows.
+        float sx = hx, base = r.top + 258 * k, end = r.right - 30 * k, sep = 36 * k;
+        for (String extra : new String[] {rainText, pollenText, airText}) {
+            if (extra.isEmpty() || sx + cardDim.measureText(extra) > end) continue;
+            c.drawText(extra, sx, base, cardDim);
+            sx += cardDim.measureText(extra) + sep;
+        }
+        if (wx.sunrise != 0 && sx + sunWidth(sunriseText) <= end) sx = sunItem(c, "sunrise", sunriseText, sx, base) + sep;
+        if (wx.sunset != 0 && sx + sunWidth(sunsetText) <= end) sunItem(c, "sunset", sunsetText, sx, base);
+    }
+
+    private float sunWidth(String label) {
+        return Symbols.width(getContext(), "sunrise", 22 * k) + 10 * k + cardDim.measureText(label);
     }
 
     private void refreshDrawerText() {
         HomeData.Weather wx = data.weather;
+        rainText = HomeData.rainText(wx);   // "around 20:40" turns into "any minute": every time
         boolean settings = Prefs.version != textPrefs || !Ui.language.equals(textLanguage);
         textPrefs = Prefs.version;
         textLanguage = Ui.language;
@@ -1604,6 +1669,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 hourText[i] = HomeData.hour(wx.hours.get(i));
                 hourTempText[i] = HomeData.degrees(wx.hourTemp.get(i));
             }
+            airText = HomeData.airText(wx);
+            pollenText = HomeData.pollenText(wx);
             sunriseText = Ui.tr("Nascer ", "Sunrise ") + Ui.time(wx.sunrise);
             sunsetText = Ui.tr("Pôr do sol ", "Sunset ") + Ui.time(wx.sunset);
         }
@@ -1669,7 +1736,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
-    private final Snapshot weatherSnapshot = new Snapshot(), quotesSnapshot = new Snapshot();
+    private final Snapshot weatherSnapshot = new Snapshot(), quotesSnapshot = new Snapshot(), todaySnapshot = new Snapshot();
+    private String rainText = "", airText = "", pollenText = "";
 
     private void drawPrices(Canvas c, RectF r) {
         float x = r.left + 34 * k, right = r.right - 34 * k;
@@ -1696,6 +1764,111 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(changeText[i], tmp.centerX(), mid + Ui.halfCap(changePaint), changePaint);
         }
     }
+
+    // MARK: - Today card: the quote of the day and the age counter
+
+    private void drawTodayCard(Canvas c, RectF r) {
+        drawerCard(c, r);
+        if (Ui.LEGACY) todaySnapshot.draw(c, r, drawerCardsKey(), cc -> drawToday(cc, r));
+        else drawToday(c, r);
+    }
+
+    private void drawToday(Canvas c, RectF r) {
+        float x = r.left + 34 * k, room = r.width() - 68 * k;
+        long now = System.currentTimeMillis();
+        c.drawText(Ui.tr("Hoje", "Today", "Hoy"), x, r.top + 54 * k, cardTitle);
+        float top = r.top + 76 * k;
+        int[] age = Daily.age(Prefs.childBirth(), now);
+        String name = Prefs.childName();
+        if (age != null && !name.isEmpty()) {
+            fitPaint.set(cardText);
+            fitPaint.setTypeface(Ui.semibold);
+            String line = TextUtils.ellipsize(Daily.ageLine(name, age), fitPaint, room, TextUtils.TruncateAt.END).toString();
+            c.drawText(line, x, top + 30 * k, fitPaint);
+            top += 44 * k;
+            String mark = Daily.milestone(age);
+            if (!mark.isEmpty()) {
+                c.drawText(mark, x, top + 22 * k, cardDim);
+                top += 34 * k;
+            }
+            top += 14 * k;
+        }
+        if (!Prefs.daily()) return;
+        String[] q = Daily.quote(now);
+        float bottom = r.bottom - 30 * k;
+        boolean author = !q[1].isEmpty();
+        float authorH = author ? 34 * k : 0;
+        quoteText.set(cardText);
+        quoteText.setColor(drawerInk(0.9f));
+        quoteText.setTextSize((top > r.top + 100 * k ? 24 : 27) * k);
+        int lines = Math.max(1, (int) ((bottom - authorH - top) / (quoteText.getTextSize() * 1.3f)));
+        String text = "« " + q[0] + " »";
+        StaticLayout layout = StaticLayout.Builder.obtain(text, 0, text.length(), quoteText, Math.round(room))
+                .setMaxLines(lines).setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(0, 1.08f)
+                .setIncludePad(false).build();
+        c.save();
+        c.translate(x, top);
+        layout.draw(c);
+        c.restore();
+        if (author) c.drawText("— " + q[1], x, top + layout.getHeight() + 30 * k, cardDim);
+    }
+
+    // MARK: - Photo card: an iCloud shared album, one photo a minute with a crossfade
+
+    /** Loads the next photo in the background; it fades in once decoded. */
+    private void nextPhoto() {
+        if (photoLoading || !Prefs.photos() || !Album.configured()) return;
+        int size = Math.round(CARDS_H * k);
+        if (size <= 0) return;
+        photoLoading = true;
+        photoNextAt = SystemClock.uptimeMillis() + PHOTO_EVERY;
+        LOADER.execute(() -> {
+            Bitmap b = album.nextSquare(size);
+            handler.post(() -> {
+                photoLoading = false;
+                if (b == null) return;
+                if (photoOld != null) photoOld.recycle();
+                photoOld = photoNow;
+                photoOldShader = photoNowShader;
+                photoNow = b;
+                photoNowShader = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                photoFadeAt = SystemClock.uptimeMillis();
+                if (!photoOn) layoutDrawer();
+                drawerDirty = true;
+                wake();
+            });
+        });
+    }
+
+    /** True while a photo is fading in; also starts the next photo when it's due (only with the drawer open). */
+    private boolean tickPhoto(long up) {
+        if (!photoOn) return false;
+        if (drawerOpen && !photoLoading && up >= photoNextAt) nextPhoto();
+        return photoNow != null && up - photoFadeAt < PHOTO_FADE;
+    }
+
+    private void drawPhotoCard(Canvas c, RectF r) {
+        float radius = 30 * k;
+        drawerCard(c, r);
+        float t = photoNow == null ? 0 : Ui.clamp((SystemClock.uptimeMillis() - photoFadeAt) / (float) PHOTO_FADE);
+        t = t * t * (3 - 2 * t);
+        if (photoOldShader != null && t < 1) drawPhoto(c, r, radius, photoOldShader, 1);
+        if (photoNowShader != null) drawPhoto(c, r, radius, photoNowShader, t);
+    }
+
+    /** The photo in the card's rounded shape: a shader, not a clip (cheaper on older GPUs). */
+    private void drawPhoto(Canvas c, RectF r, float radius, BitmapShader shader, float alpha) {
+        photoMatrix.setTranslate(r.left, r.top);
+        shader.setLocalMatrix(photoMatrix);
+        photoPaint.setShader(shader);
+        photoPaint.setAlpha(Math.round(255 * alpha));
+        c.drawRoundRect(r, radius, radius, photoPaint);
+        photoPaint.setShader(null);
+    }
+
+    private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final android.graphics.Matrix photoMatrix = new android.graphics.Matrix();
+    private final TextPaint quoteText = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
     // MARK: - Focus
 
@@ -2374,7 +2547,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // MARK: - TalkBack: every reachable item as a virtual node (Spoken). Id = group * 1000 + index + 1.
 
-    /** The drawer's weather (0) and quotes (1) cards: read by TalkBack, never focused by the remote. */
+    /** The drawer's weather (0), quotes (1), today (2) and photo (3) cards: read by TalkBack, never focused by the remote. */
     private static final int GRID = 9, WIDGETS = 8;
 
     private static int a11yId(int group, int index) {
@@ -2394,8 +2567,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
-        if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
-        if (drawerOpen && Prefs.quotes() && HomeData.active().length > 0) out.add(a11yId(WIDGETS, 1));
+        for (int i : widgets()) out.add(a11yId(WIDGETS, i));
     }
 
     private String a11yText(int id) {
@@ -2415,7 +2587,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
-            case WIDGETS: return i == 0 ? weatherText() : quotesText();
+            case WIDGETS: return i == 0 ? weatherText() : i == 1 ? quotesText() : i == 2 ? todayText() : Ui.tr("Fotos", "Photos", "Fotos");
             default: return "";
         }
     }
@@ -2459,7 +2631,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 break;
             case WIDGETS:
                 if (!drawerOpen) return false;
-                a11yRect.set(i == 0 ? weatherCard : quotesCard);
+                a11yRect.set(i == 0 ? weatherCard : i == 1 ? quotesCard : i == 2 ? todayCard : photoCard);
                 dy = 0;
                 break;
             default:
@@ -2490,8 +2662,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<Integer> out = new ArrayList<>();
         if (!drawerOpen) return out;
         if (Prefs.weather()) out.add(0);
-        if (Prefs.quotes() && HomeData.active().length > 0) out.add(1);
+        if (quotesOn) out.add(1);
+        if (todayOn) out.add(2);
+        if (photoOn) out.add(3);
         return out;
+    }
+
+    /** What TalkBack reads on the Today card: the age, then the quote and its author. */
+    private String todayText() {
+        StringBuilder sb = new StringBuilder(Ui.tr("Hoje", "Today", "Hoy"));
+        int[] age = Daily.age(Prefs.childBirth(), System.currentTimeMillis());
+        if (age != null && !Prefs.childName().isEmpty()) sb.append(". ").append(Daily.ageLine(Prefs.childName(), age));
+        if (Prefs.daily()) {
+            String[] q = Daily.quote(System.currentTimeMillis());
+            sb.append(". ").append(q[0]);
+            if (!q[1].isEmpty()) sb.append(" ").append(q[1]);
+        }
+        return sb.toString();
     }
 
     /** A spoken-feedback service (TalkBack) is on. */

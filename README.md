@@ -118,6 +118,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | Key | What it does | Default |
 |---|---|---|
 | `tmdb_key` | Your free TMDB key, for the picks | empty |
+| `icloud_album` | The public link of an iCloud shared album, for the photo card in the drawer (anyone with the link sees the album: make one for the TV) | empty |
 | `unsplash_key` | Your free [Unsplash](https://unsplash.com/developers) Access Key, for landscapes and animals on the screensaver (*Home Settings* → *Screensaver*) | empty |
 | `tmdb_region` | Your country (two letters): which titles are on which app | `US` |
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |

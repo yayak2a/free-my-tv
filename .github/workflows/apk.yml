@@ -6,6 +6,7 @@
 #   KEYSTORE_BASE64 = the keystore in base64 (PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("freemytv.keystore")))
 # Optional secret TMDB_KEY: your free themoviedb.org key, for the picks and the screensaver photos.
 # Optional secret UNSPLASH_KEY: your free Unsplash Access Key, for landscapes and animals on the screensaver.
+# Optional secret ICLOUD_ALBUM: the public link of an iCloud shared album, for the photo card in the drawer.
 name: Build the APK
 
 on:
@@ -57,6 +58,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
           UNSPLASH_KEY: ${{ secrets.UNSPLASH_KEY }}
+          ICLOUD_ALBUM: ${{ secrets.ICLOUD_ALBUM }}
           CITY: ${{ inputs.city }}
           LATITUDE: ${{ inputs.latitude }}
           LONGITUDE: ${{ inputs.longitude }}
@@ -68,6 +70,7 @@ jobs:
           cat > config.properties <<EOF
           tmdb_key=${TMDB_KEY}
           unsplash_key=${UNSPLASH_KEY}
+          icloud_album=${ICLOUD_ALBUM}
           tmdb_region=${REGION}
           latitude=${LATITUDE}
           longitude=${LONGITUDE}
