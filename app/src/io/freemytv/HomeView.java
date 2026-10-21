@@ -332,12 +332,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.postDelayed(reloadSoon, 500);
     }
 
+    /** The screensaver's landscapes and animals, fetched while the home screen is up so they're ready when it starts. */
+    private void refreshNature() {
+        if (!"films".equals(Prefs.screensaver())) Nature.get(getContext()).refreshIfStale();
+    }
+
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!running) return;
             wake();
             data.refreshIfStale();
             recs.refreshIfStale();
+            refreshNature();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -407,6 +413,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         recs.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
+        refreshNature();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();

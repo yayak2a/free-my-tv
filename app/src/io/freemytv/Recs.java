@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String label;           // the caption's small line; null = the time of day ("TONIGHT")
         boolean detailed;
     }
 

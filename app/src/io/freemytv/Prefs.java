@@ -97,6 +97,14 @@ final class Prefs {
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 
+    /** What the screensaver shows: "nature" (Unsplash photos), "films" (the picks' images) or "both". */
+    static String screensaver() {
+        String v = sp().getString("screensaver", "");
+        if (v.equals("nature") || v.equals("films") || v.equals("both")) return v;
+        return Nature.hasKey() ? "nature" : "films";
+    }
+    static void setScreensaver(String v) { put("screensaver", v); }
+
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
 

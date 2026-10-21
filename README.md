@@ -73,7 +73,8 @@ About ten minutes. You need a Google TV or Android TV (Android 9 or newer) and a
 
 Fork the repo, then *Actions* → *Build the APK* → *Run workflow*: set your city and country, and download *FreeMyTV* from
 the run's artifacts. Install it with step 4 above. Updates must be signed with the same key, so save yours once as the
-`KEYSTORE_BASE64` secret (the workflow file says how), and add your [TMDB key](#the-tmdb-key) as the `TMDB_KEY` secret.
+`KEYSTORE_BASE64` secret (the workflow file says how), and add your [TMDB key](#the-tmdb-key) as the `TMDB_KEY` secret (and an Unsplash Access Key as `UNSPLASH_KEY`, for
+landscapes and animals on the screensaver).
 
 ## LG TVs (webOS)
 
@@ -117,6 +118,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | Key | What it does | Default |
 |---|---|---|
 | `tmdb_key` | Your free TMDB key, for the picks | empty |
+| `unsplash_key` | Your free [Unsplash](https://unsplash.com/developers) Access Key, for landscapes and animals on the screensaver (*Home Settings* → *Screensaver*) | empty |
 | `tmdb_region` | Your country (two letters): which titles are on which app | `US` |
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |

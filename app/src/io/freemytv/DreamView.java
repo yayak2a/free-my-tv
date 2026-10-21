@@ -35,9 +35,10 @@ import java.util.concurrent.Executors;
  *    never upscales it;
  *  - top right, like the iPhone lock screen: the date with the weather, the big Liquid Glass clock (the photo shows
  *    through the digits, bent at the edges; Shaders.GLASS_TEXT) and the compact prices;
- *  - bottom left, the photo's caption: the time-of-day label ("TONIGHT"), the title, and genre · runtime · service.
+ *  - bottom left, the photo's caption: the time-of-day label ("TONIGHT"), the title, and genre · runtime · service;
+ *    for Unsplash's landscapes and animals (Nature, Prefs.screensaver), the place and the photographer.
  * Dark scrims only where there is text, stronger where the photo is bright. Any key exits (as on Apple TV).
- * Without photos (no TMDB key, or before the first fetch): the big clock over the night aurora.
+ * Without photos (no TMDB or Unsplash key, or before the first fetch): the big clock over the night aurora.
  */
 final class DreamView extends View implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
     private static final long SHOW_MS = 30_000, FADE_MS = 3_000, FIRST_MS = 1_600;
@@ -96,6 +97,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private final Scene scene = new Scene(false);
     private final HomeData data;
     private final Recs recs;
+    private final Nature nature;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Recording content = Recording.create("clock");     // without photos: the clock over the aurora
@@ -129,8 +131,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         @Override public void run() {
             if (!running) return;
             data.refreshIfStale();
-            recs.refreshIfStale();
-            recs.prefetchAll();
+            refreshSources();
             dirty = true;
             chromeDirty = true;
             prepareNext();
@@ -142,6 +143,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         super(c);
         data = HomeData.get(c);
         recs = Recs.get(c);
+        nature = Nature.get(c);
         Shaders.dream(scene.palette);
         scene.setMotion(0.4f, 0.32f);
         scene.applyPalette();
@@ -164,12 +166,13 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         startedAt = clock();
         lastFrame = 0;
         failed.clear();
-        fallback = recs.showcase().isEmpty();
+        nature.newSession();
+        fallback = photos().isEmpty();
         data.addListener(this);
         recs.addListener(this);
+        nature.addListener(this);
         data.refreshIfStale();
-        recs.refreshIfStale();
-        recs.prefetchAll();
+        refreshSources();
         prepareNext();
         handler.postDelayed(tick, 60_000);
         Choreographer.getInstance().postFrameCallback(this);
@@ -185,6 +188,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         handler.removeCallbacks(tick);
         data.removeListener(this);
         recs.removeListener(this);
+        nature.removeListener(this);
         // The photos stay in GPU memory until the garbage collector runs: release them now (after the last frame).
         final java.util.Set<Bitmap> gone = new java.util.HashSet<>();
         for (Slide s : new Slide[] {current, incoming, prepared}) {
@@ -254,10 +258,35 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
 
     // MARK: - Photos
 
+    /** The photos for this screensaver, from the source picked in Home Settings (both: one of each in turn). */
+    private List<Recs.Pick> photos() {
+        String mode = Prefs.screensaver();
+        List<Recs.Pick> films = mode.equals("nature") ? new java.util.ArrayList<>() : recs.showcase();
+        List<Recs.Pick> wild = mode.equals("films") ? new java.util.ArrayList<>() : nature.showcase();
+        if (films.isEmpty()) return wild;
+        if (wild.isEmpty()) return films;
+        List<Recs.Pick> out = new java.util.ArrayList<>();
+        for (int i = 0; i < Math.max(films.size(), wild.size()); i++) {
+            if (i < wild.size()) out.add(wild.get(i));
+            if (i < films.size()) out.add(films.get(i));
+        }
+        return out;
+    }
+
+    /** Only the sources in use fetch anything. */
+    private void refreshSources() {
+        String mode = Prefs.screensaver();
+        if (!mode.equals("nature")) {
+            recs.refreshIfStale();
+            recs.prefetchAll();
+        }
+        if (!mode.equals("films")) nature.refreshIfStale();
+    }
+
     /** Loads the next photo in the background (one at a time); once ready, it comes in at the right moment. */
     private void prepareNext() {
         if (!running || decoding || prepared != null) return;
-        List<Recs.Pick> list = recs.showcase();
+        List<Recs.Pick> list = photos();
         if (list.isEmpty()) return;
         Slide last = incoming != null ? incoming : current;
         int start = 0;
@@ -283,7 +312,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             prepared = newSlide(pick, last.image, last.frost, last.lightCaption, last.lightClock);
             return;
         }
-        File file = recs.readyImage(pick);
+        File file = Nature.KIND.equals(pick.kind) ? nature.readyImage(pick) : recs.readyImage(pick);
         if (file == null) {
             failed.add(Recs.key(pick));   // the image is gone from disk: try the next one
             prepareNext();
@@ -680,7 +709,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                     .setIncludePad(false).build();
             float originY = titleBase - t.getLineBaseline(t.getLineCount() - 1);
             float capTop = originY + t.getLineBaseline(0) - Ui.cap(titlePaint);
-            c.drawText(Recs.periodLabel(), x, capTop - 30 * k, labelPaint);
+            c.drawText(s.pick.label != null ? s.pick.label : Recs.periodLabel(), x, capTop - 30 * k, labelPaint);
             c.save();
             c.translate(x - Ui.leftBearing(titlePaint, title), originY);
             t.draw(c);

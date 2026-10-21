@@ -42,6 +42,10 @@ final class French {
             case "Your TV's home screen and screensaver": return "Écran d'accueil et économiseur d'écran de la TV";
             case "Home Screen": return "Écran d'accueil";
             case "Screensaver": return "Économiseur d'écran";
+            case "Nature": return "Nature";
+            case "Movies and shows": return "Films et séries";
+            case "Both": return "Les deux";
+            case "Photo: ": return "Photo : ";
             case "Preview": return "Aperçu";
             case "On the TV: tick “Always allow” and press OK.": return "Sur la TV : cochez « Toujours autoriser » puis appuyez sur OK.";
             case "RECOMMENDATIONS": return "RECOMMANDATIONS";

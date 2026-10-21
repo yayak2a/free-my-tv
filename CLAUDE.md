@@ -154,6 +154,10 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   `Russian.java` and `French.java` (keyed by the English); text built at runtime uses `Ui.tr(pt, en, es)`, and its German and Russian
   come from those files too (patterns for the parts built at runtime). Add them all. Comments in English, short, only where the why
   isn't obvious.
+- The screensaver shows the picks' images, Unsplash's landscapes and animals (`Nature`, with the person's own free
+  Access Key in `unsplash_key`; never the Secret Key), or both, per *Home Settings* → *Screensaver*
+  (`Prefs.screensaver`). Unsplash's rules: credit the photographer on screen and report each kept photo to its
+  `download_location` once. The key follows the TMDB key's rules: theirs, never printed or committed.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and

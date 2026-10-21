@@ -42,6 +42,10 @@ final class German {
             case "Your TV's home screen and screensaver": return "Startbildschirm und Bildschirmschoner des Fernsehers";
             case "Home Screen": return "Startbildschirm";
             case "Screensaver": return "Bildschirmschoner";
+            case "Nature": return "Natur";
+            case "Movies and shows": return "Filme und Serien";
+            case "Both": return "Beides";
+            case "Photo: ": return "Foto: ";
             case "Preview": return "Ansehen";
             case "On the TV: tick “Always allow” and press OK.": return "Am Fernseher: „Immer zulassen“ ankreuzen und OK drücken.";
             case "RECOMMENDATIONS": return "EMPFEHLUNGEN";

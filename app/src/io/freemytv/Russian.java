@@ -49,6 +49,10 @@ final class Russian {
             case "Your TV's home screen and screensaver": return "Главный экран и заставка телевизора";
             case "Home Screen": return "Главный экран";
             case "Screensaver": return "Заставка";
+            case "Nature": return "Природа";
+            case "Movies and shows": return "Фильмы и сериалы";
+            case "Both": return "Всё вместе";
+            case "Photo: ": return "Фото: ";
             case "Preview": return "Предпросмотр";
             case "On the TV: tick “Always allow” and press OK.": return "На телевизоре отметьте «Всегда разрешать» и нажмите OK.";
             case "RECOMMENDATIONS": return "РЕКОМЕНДАЦИИ";
