@@ -69,6 +69,12 @@ About ten minutes. You need a Google TV or Android TV (Android 9 or newer) and a
    ```
 5. **On the TV**, open *Free My TV* → *Home Screen* → *Free My TV*.
 
+### Build it on GitHub (no tools but adb)
+
+Fork the repo, then *Actions* → *Build the APK* → *Run workflow*: set your city and country, and download *FreeMyTV* from
+the run's artifacts. Install it with step 4 above. Updates must be signed with the same key, so save yours once as the
+`KEYSTORE_BASE64` secret (the workflow file says how), and add your [TMDB key](#the-tmdb-key) as the `TMDB_KEY` secret.
+
 ## LG TVs (webOS)
 
 The same home screen as an LG app: the picks, the glass shelf with your apps, the drawer with inputs, weather and prices, day and night, Home Settings and the shelf editor. It installs through LG's own Developer Mode, with nothing rooted or changed on the TV. LG's home screen stays where it is, and Free My TV is one press of a number key away.
@@ -114,7 +120,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `tmdb_region` | Your country (two letters): which titles are on which app | `US` |
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |
-| `language` | `auto` (follows the TV), `en`, `es`, `pt`, `ru` or `de` | `auto` |
+| `language` | `auto` (follows the TV), `en`, `es`, `pt`, `ru`, `de` or `fr` (`fr`: Android and Google TV for now) | `auto` |
 | `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
 | `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
@@ -138,7 +144,7 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
 - It turns off, without uninstalling:
   - the stock home screen and screensaver;
   - Google TV's recovery home, Play Games and YouTube Music;
-  - on TCL TVs, the TCL Channel, messages, store demo, hotel menu, manuals, mirroring and logging apps;
+  - on TCL TVs, the TCL Channel, messages, store demo, hotel menu, manuals, mirroring and logging apps, and on 2019 models (also sold as Thomson) the boot ads and telemetry;
   - on Philco TVs, AI PONT (promo channels and app downloads) and the manual;
   - on Multilaser TVs, Anoki's screen-content recognition (ACR), the store demo and the manual;
   - Google Assistant, only with `disable_assistant=true`.
@@ -148,7 +154,7 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
 
 ## Any TV
 
-Free My TV runs on Google TV and Android TV: TCL, Sony, Hisense, Philips, Xiaomi, Vestel-made TVs (F&U) and more, plus streamers like Chromecast with Google TV, the Google TV Streamer, onn 4K and NVIDIA Shield. And on [LG](#lg-tvs-webos) and [Samsung](#samsung-tvs-tizen) TVs, as an app.
+Free My TV runs on Google TV and Android TV: TCL (and the 2019 Thomsons it made), Sony, Hisense, Philips, Xiaomi, Vestel-made TVs (F&U) and more, plus streamers like Chromecast with Google TV, the Google TV Streamer, onn 4K and NVIDIA Shield. And on [LG](#lg-tvs-webos) and [Samsung](#samsung-tvs-tizen) TVs, as an app.
 
 **Any other TV:** plug a Google TV streamer into HDMI and free that one. Same steps, same home screen.
 

@@ -20,7 +20,8 @@ before you do it, and let them do the taps on the TV.
    - macOS: `brew install --cask temurin android-commandlinetools android-platform-tools`, then
      `sdkmanager "build-tools;34.0.0" "platforms;android-34"`.
    - Linux: OpenJDK 17, Android's command-line tools and adb from the package manager, then the same `sdkmanager` line.
-   - Windows: WSL, then as on Linux.
+   - Windows: WSL, then as on Linux. Or, with no tools but adb: the *Build the APK* workflow on their fork
+     (`.github/workflows/apk.yml`), then `adb install -r FreeMyTV.apk` from the downloaded artifact.
 3. **Settings:** run `./build.sh` once; it creates `config.properties`. Fill in `latitude` and `longitude` (decimal
    degrees) and `city` for their city, `tmdb_region` (two-letter country), `show_crypto`, `currency` and `temperature` to match.
 4. **The TMDB key is theirs and secret.** Ask them to create one (free: themoviedb.org → Settings → API) and paste it
@@ -149,8 +150,8 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   Android 13+, with a fallback for 9 to 12). Keep it at 60 fps: no allocations in `onDraw`, no work on the UI thread.
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`
   process. `Watchdog` goes back to the stock home screen after 3 crashes in 5 minutes.
-- On-screen text: `Ui.tr("pt", "en")`, with the Spanish, German and Russian in `Spanish.java`, `German.java` and
-  `Russian.java` (keyed by the English); text built at runtime uses `Ui.tr(pt, en, es)`, and its German and Russian
+- On-screen text: `Ui.tr("pt", "en")`, with the Spanish, German, Russian and French in `Spanish.java`, `German.java`,
+  `Russian.java` and `French.java` (keyed by the English); text built at runtime uses `Ui.tr(pt, en, es)`, and its German and Russian
   come from those files too (patterns for the parts built at runtime). Add them all. Comments in English, short, only where the why
   isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).

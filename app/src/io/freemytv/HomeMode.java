@@ -63,6 +63,7 @@ final class HomeMode {
         "com.tcl.messagebox", "com.tcl.usercenter",                                   // TCL messages and account
         "com.tcl.exhibit", "com.tcl.esticker", "com.tcl.hotelmenu",                   // store demo, hotel menu
         "com.tcl.repairguide", "com.tcl.ocean.instructions", "com.tcl.logkit",        // repair guide, manual, logs
+        "com.tcl.bootadservice", "com.tcl.bi", "com.tcl.showmode",                    // boot ads, telemetry, store demo (2019, Thomson)
         // Multilaser (Expressluck / CVTE board)
         "tv.anoki.acr.anokiacroptin",                                                 // Anoki ACR: watches what's on screen
         "fusion.android.tv.demo", "com.expressluck.tvhelpmanual",                     // store demo, manual
@@ -84,6 +85,12 @@ final class HomeMode {
         "com.tcl.UpdatePeripheral", "com.tcl.dashboard", "com.tcl.suspension", "com.tcl.providers.config",
         "com.tcl.gamebar", "com.tcl.airplay2", "com.mirakulo.astrotv.service", "com.tcl.initsetup",
         "com.tcl.useragreement", "com.tcl.factory.view", "com.tcl.guard", "com.tcl.t_solo",
+        // TCL 2019 (Android 9, Realtek; sold as Thomson): sources and HDMI, remote, keys, updates, system UI, store setup
+        "com.tcl.sourcemananger", "com.tcl.tvpassthrough", "com.tcl.tcl_bt_rcu_service", "com.tcl.keyhelp",
+        "com.tcl.keycustomfunctionservice", "com.tcl.framework.custom", "com.tcl.settings", "com.tcl.systemuioverlay",
+        "com.tcl.appstatecontroller", "com.tcl.xian.StartandroidService", "com.tcl.rc.ota", "com.tcl.versionUpdateApp",
+        "com.tcl.partnercustomizer", "com.tcl.partnercustomizer.resource", "com.tcl.inputmethod.international",
+        "com.tcl.micmanager", "com.tcl.pvr.pvrplayer", "com.tcl.common.terminalmanagerplus", "com.realtek.netflix.setting",
         "com.google.android.gms", "com.google.android.gsf", "com.android.vending", "com.google.android.apps.mediashell",
         "com.google.android.tv.remote.service", "com.google.android.inputmethod.latin", "com.google.android.webview",
         "com.android.tv.settings", "com.android.systemui", "android", PKG,
@@ -276,7 +283,7 @@ final class HomeMode {
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, FREE, 120_000);
         } catch (Exception e) {
-            done(c, Ui.tr("Não deu para ligar o Free My TV: ", "Couldn't turn on Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+            done(c, Ui.tr("Não deu para ligar o Free My TV: ", "Couldn't turn on Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : Ui.fr ? French.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
         }
     }
 
@@ -327,7 +334,7 @@ final class HomeMode {
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, ORIGINAL, 120_000);
         } catch (Exception e) {
-            done(c, Ui.tr("Não deu para voltar ao original: ", "Couldn't go back to the original: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+            done(c, Ui.tr("Não deu para voltar ao original: ", "Couldn't go back to the original: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : Ui.fr ? French.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
         }
     }
 
@@ -429,7 +436,7 @@ final class HomeMode {
                 latest.put("disabled", new JSONArray(sorted(disabled)));
                 save(app, latest);
             } catch (Exception e) {
-                notice(app, Ui.tr("Não consegui conferir o Free My TV: ", "Couldn't check Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+                notice(app, Ui.tr("Não consegui conferir o Free My TV: ", "Couldn't check Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : Ui.fr ? French.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
                 return;
             }
             if (!fixed.isEmpty()) {

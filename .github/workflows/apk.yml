@@ -1,0 +1,91 @@
+# Builds FreeMyTV.apk on GitHub, so nothing needs installing on your computer but adb.
+# Actions → "Build the APK" → Run workflow, then download "FreeMyTV" from the run's Artifacts.
+#
+# Updates must be signed with the same key. Put your freemytv.keystore in a secret once:
+#   Settings → Secrets and variables → Actions → New repository secret
+#   KEYSTORE_BASE64 = the keystore in base64 (PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("freemytv.keystore")))
+# Optional secret TMDB_KEY: your free themoviedb.org key, for the picks and the screensaver photos.
+name: Build the APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "City shown on the weather card (it can also be changed on the TV)"
+        default: ""
+      latitude:
+        description: "Latitude, decimal degrees"
+        default: "48.8566"
+      longitude:
+        description: "Longitude, decimal degrees"
+        default: "2.3522"
+      tmdb_region:
+        description: "Country, two letters (which titles are on which app)"
+        default: "FR"
+      language:
+        description: "auto, fr, en, es, pt, de or ru"
+        default: "auto"
+      currency:
+        description: "Crypto prices: EUR, USD, BRL..."
+        default: "EUR"
+      show_crypto:
+        description: "Show cryptocurrency prices"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android build tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0" "platforms;android-34" >/dev/null
+
+      - name: Settings and signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+          CITY: ${{ inputs.city }}
+          LATITUDE: ${{ inputs.latitude }}
+          LONGITUDE: ${{ inputs.longitude }}
+          REGION: ${{ inputs.tmdb_region }}
+          LANGUAGE: ${{ inputs.language }}
+          CURRENCY: ${{ inputs.currency }}
+          CRYPTO: ${{ inputs.show_crypto }}
+        run: |
+          cat > config.properties <<EOF
+          tmdb_key=${TMDB_KEY}
+          tmdb_region=${REGION}
+          latitude=${LATITUDE}
+          longitude=${LONGITUDE}
+          city=${CITY}
+          language=${LANGUAGE}
+          show_crypto=${CRYPTO}
+          currency=${CURRENCY}
+          temperature=auto
+          disable_assistant=false
+          EOF
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > freemytv.keystore
+          else
+            echo "::warning::No KEYSTORE_BASE64 secret: this APK gets a one-off key, and the next build won't install over it."
+          fi
+
+      - name: Build
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTV
+          path: FreeMyTV.apk
+          retention-days: 30
