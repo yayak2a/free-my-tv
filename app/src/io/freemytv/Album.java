@@ -189,7 +189,9 @@ final class Album {
         long now = System.currentTimeMillis();
         long sinceFail = now - failedAt;
         if (failedAt != 0 && sinceFail >= 0 && sinceFail < RETRY_AFTER) return;
-        boolean stale = now - checkedAt > CHECK_EVERY || now < checkedAt || guids.isEmpty();
+        // Also when photos are missing on disk (an update that keeps them larger, a cleared cache): fetched again
+        // now, a batch at a time, rather than at the next half-hour check.
+        boolean stale = now - checkedAt > CHECK_EVERY || now < checkedAt || guids.isEmpty() || count() < guids.size();
         if (!stale) return;
         fetching = true;
         io.execute(() -> {
