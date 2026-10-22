@@ -45,6 +45,8 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String label;           // the caption's small line; null = the time of day ("TONIGHT")
+        double rating;          // TMDB's average (0 to 10), 0 = too few votes to mean anything
+        int fresh;              // 1 = out in the last 30 days, 2 = a new season in the last 30 days
         boolean detailed;
     }
 
@@ -54,7 +56,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -462,6 +464,8 @@ final class Recs {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
         p.title = title(p, o);
+        p.rating = o.optInt("vote_count") >= 30 ? o.optDouble("vote_average", 0) : 0;
+        p.fresh = freshness(o);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -697,7 +701,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("rating", p.rating).put("fresh", p.fresh));
             }
             cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -720,9 +724,67 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.rating = o.optDouble("rating", 0);
+            p.fresh = o.optInt("fresh", 0);
             out.add(p);
         }
         return out;
+    }
+
+    /** 1 if it came out in the last 30 days, 2 if a show's new season did, else 0. */
+    private static int freshness(JSONObject o) {
+        long month = 30L * 86_400_000L, now = System.currentTimeMillis();
+        long first = isoDay(o.optString("release_date", o.optString("first_air_date", "")));
+        if (first > 0 && now - first < month && first <= now + 86_400_000L) return 1;
+        JSONObject last = o.optJSONObject("last_episode_to_air");
+        if (last != null && last.optInt("episode_number") == 1 && last.optInt("season_number") > 1) {
+            long aired = isoDay(last.optString("air_date", ""));
+            if (aired > 0 && now - aired < month) return 2;
+        }
+        return 0;
+    }
+
+    private static long isoDay(String s) {
+        if (s == null || !s.matches("\\d{4}-\\d{2}-\\d{2}")) return 0;
+        try {
+            java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+            return f.parse(s).getTime();
+        } catch (java.text.ParseException e) {
+            return 0;
+        }
+    }
+
+    // MARK: - Trailers
+
+    /**
+     * The pick's trailer on YouTube, in the background: the YouTube video id (or null) comes back on the main thread.
+     * A trailer in the TV's language first, then in English; official ones first, then any teaser.
+     */
+    void trailer(Pick p, java.util.function.Consumer<String> done) {
+        new Thread(() -> {
+            String found = null;
+            try {
+                JSONObject o = get("/" + p.kind + "/" + p.id + "/videos?language=" + lang()
+                        + "&include_video_language=" + Ui.language + ",en,null");
+                JSONArray list = o.optJSONArray("results");
+                int best = -1;
+                for (int i = 0; list != null && i < list.length(); i++) {
+                    JSONObject v = list.optJSONObject(i);
+                    if (v == null || !"YouTube".equals(v.optString("site")) || v.optString("key", "").isEmpty()) continue;
+                    String type = v.optString("type");
+                    int score = ("Trailer".equals(type) ? 8 : "Teaser".equals(type) ? 4 : 0)
+                            + (v.optBoolean("official") ? 2 : 0) + (Ui.language.equals(v.optString("iso_639_1")) ? 1 : 0);
+                    if (score >= 4 && score > best) {
+                        best = score;
+                        found = v.optString("key");
+                    }
+                }
+            } catch (Exception e) {
+                AppLog.w("trailer: " + e.getMessage());
+            }
+            final String key = found;
+            main.post(() -> done.accept(key));
+        }, "trailer").start();
     }
 
     private static String read(InputStream in) throws IOException {

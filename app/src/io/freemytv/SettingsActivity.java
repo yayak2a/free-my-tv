@@ -122,7 +122,7 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[16];   // the longest list: Home Settings, up to 14 rows
+        private final Spring[] pop = new Spring[18];   // the longest list: Home Settings, up to 16 rows
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -132,7 +132,7 @@ public class SettingsActivity extends Activity {
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
         private static final int PICK_CITY = 0;
         private final List<String[]> cities = new ArrayList<>();
-        private String cityStatus = "", childStatus = "";
+        private String cityStatus = "", childStatus = "", kidStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
@@ -611,8 +611,14 @@ public class SettingsActivity extends Activity {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
                             } else {
-                                focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
-                                screen = MAIN;
+                                if (screen == SHELF_EDIT && Prefs.editingKid) {
+                                    Prefs.editingKid = false;   // back to Home Settings, on the kid apps row
+                                    focus = KID_APPS_ROW;
+                                    screen = HOME_SETTINGS;
+                                } else {
+                                    focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
+                                    screen = MAIN;
+                                }
                             }
                         }
                         backDown = false;
@@ -632,7 +638,7 @@ public class SettingsActivity extends Activity {
         /** Home Settings: language, temperature, theme, screensaver, weather, city, quote of the day, age counter, photos,
          * quotes, then one row per coin. */
         private static final int SAVER_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, DAILY_ROW = 6, CHILD_ROW = 7, PHOTOS_ROW = 8,
-                QUOTES_ROW = 9, COIN_ROWS = 10;
+                KID_ROW = 9, KID_APPS_ROW = 10, QUOTES_ROW = 11, COIN_ROWS = 12;
 
         /** Home Settings rows get shorter when there are many, so the list and its hint stay on screen. */
         private float settingsPitch() {
@@ -655,6 +661,8 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Frase do dia", "Quote of the day", "Frase del día"));
             l.add(Ui.tr("Contador de idade", "Age counter", "Contador de edad"));
             l.add(Ui.tr("Fotos do iCloud", "iCloud photos", "Fotos de iCloud"));
+            l.add(Ui.tr("Perfil infantil", "Kid profile", "Perfil infantil"));
+            l.add(Ui.tr("Apps do perfil infantil", "Kid profile apps", "Apps del perfil infantil"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -683,6 +691,11 @@ public class SettingsActivity extends Activity {
             v[CHILD_ROW] = !childStatus.isEmpty() ? childStatus : Prefs.childName().isEmpty() ? "—"
                     : Prefs.childName() + ", " + Daily.birthLabel(Prefs.childBirth());
             v[PHOTOS_ROW] = !Album.configured() ? Ui.tr("Sem álbum", "No album", "Sin álbum") : onOff(Prefs.photos());
+            v[KID_ROW] = !kidStatus.isEmpty() ? kidStatus : onOff(Prefs.kidMode());
+            Prefs.editingKid = true;
+            int kidApps = HomeApps.shelfPackages(getContext()).size();
+            Prefs.editingKid = false;
+            v[KID_APPS_ROW] = kidApps + " apps";
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -764,6 +777,9 @@ public class SettingsActivity extends Activity {
                 case CITY_ROW: return;
                 case DAILY_ROW: Prefs.setDaily(!Prefs.daily()); break;
                 case CHILD_ROW: return;
+                case KID_ROW:
+                case KID_APPS_ROW:
+                    return;
                 case PHOTOS_ROW:
                     if (!Album.configured()) return;
                     Prefs.setPhotos(!Prefs.photos());
@@ -829,6 +845,42 @@ public class SettingsActivity extends Activity {
                 });
             }
             b.create().show();
+        }
+
+        /** Kid profile on: pick a 4-digit code first. Off: the code. */
+        private void askKidProfile() {
+            EditText code = new EditText(activity);
+            code.setSingleLine(true);
+            code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+            boolean on = Prefs.kidMode();
+            code.setHint(on ? Ui.tr("Código", "Code", "Código") : Ui.tr("Novo código (4 algarismos)", "New code (4 digits)", "Código nuevo (4 cifras)"));
+            new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle(Ui.tr("Perfil infantil", "Kid profile", "Perfil infantil"))
+                    .setMessage(on ? null : Ui.tr("O início mostra só os apps do perfil infantil. O código, na engrenagem, o desliga.",
+                            "The home screen shows only the kid profile's apps. The code, on the gear, turns it off.",
+                            "El inicio muestra solo las apps del perfil infantil. El código, en el engranaje, lo desactiva."))
+                    .setView(code)
+                    .setPositiveButton("OK", (d, w) -> {
+                        String typed = code.getText().toString().trim();
+                        if (on) {
+                            if (typed.equals(Prefs.kidCode())) Prefs.setKidMode(false);
+                            else flashKid(Ui.tr("Código incorreto", "Wrong code", "Código incorrecto"));
+                        } else if (typed.matches("\\d{4}")) {
+                            Prefs.setKidCode(typed);
+                            Prefs.setKidMode(true);
+                        } else {
+                            flashKid(Ui.tr("4 algarismos", "4 digits", "4 cifras"));
+                        }
+                        invalidate();
+                    })
+                    .setNegativeButton(Ui.tr("Cancelar", "Cancel"), null)
+                    .show();
+        }
+
+        private void flashKid(String message) {
+            kidStatus = message;
+            invalidate();
+            handler.postDelayed(() -> { kidStatus = ""; invalidate(); }, 4000);
         }
 
         private void saveChild(String typedName, String typedBirth) {
@@ -944,7 +996,8 @@ public class SettingsActivity extends Activity {
 
         private void drawShelfEditor(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(Ui.tr("Prateleira", "Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            c.drawText(Prefs.editingKid ? Ui.tr("Apps do perfil infantil", "Kid profile apps", "Apps del perfil infantil")
+                    : Ui.tr("Prateleira", "Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
                 String[] app = shelfRows.get(pickScroll + i);
@@ -1073,6 +1126,12 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && focus == CHILD_ROW) {
                 askChild();
                 return;
+            } else if (screen == HOME_SETTINGS && focus == KID_ROW) {
+                askKidProfile();
+                return;
+            } else if (screen == HOME_SETTINGS && focus == KID_APPS_ROW) {
+                Prefs.editingKid = true;
+                openShelfEditor();
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);
                 invalidate();

@@ -164,6 +164,12 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   iOS 26 `photos.icloud.com/shared/album/<key>` links go through CloudKit's public resolve and the zone's changes,
   older `#B0…` links through sharedstreams; both undocumented by Apple). The weather takes the room the others leave;
   when the row is too full the photo card goes first, then *Today*.
+- Picks: the focused card is the wide one and the background follows it; holding OK on a card plays its trailer
+  (TMDB videos → the YouTube app); badges show TMDB's rating (30+ votes) and NEW / NEW SEASON (last 30 days).
+- The moon button is the sleep timer (`Sleep`): 30/60/90 min, an exact alarm wakes `HomeReceiver`, which presses
+  Sleep (then Power if still awake) through the local ADB. The kid profile (`Prefs.kidMode`, a 4-digit code) shows
+  only its own shelf (`kidShelf`), no picks, drawer or All Apps; the gear asks for the code. `PhotosActivity` is the
+  album full screen, from the photo card (↓ from the drawer's buttons, then OK).
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and

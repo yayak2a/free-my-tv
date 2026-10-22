@@ -130,8 +130,23 @@ final class Prefs {
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */
+    // MARK: - Kid profile
+
+    /** On: the home screen shows only the kid profile's apps, no picks, drawer or All Apps; the gear asks for the code. */
+    static boolean kidMode() { return app != null && sp().getBoolean("kidMode", false); }
+    static void setKidMode(boolean on) { put("kidMode", on); }
+    static String kidCode() { return sp().getString("kidCode", ""); }
+    static void setKidCode(String code) { put("kidCode", code); }
+    /** Settings is editing the kid profile's apps: shelf() and setShelf() work on that list meanwhile. */
+    static volatile boolean editingKid;
+
+    private static String shelfKey() {
+        return kidMode() || editingKid ? "kidShelf" : "shelf";
+    }
+
     static List<String> shelf() {
-        String v = sp().getString("shelf", null);
+        String v = sp().getString(shelfKey(), null);
+        if (v == null && !shelfKey().equals("shelf")) v = sp().getString("shelf", null);   // until set: the usual apps
         if (v == null) return null;
         List<String> out = new ArrayList<>();
         for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
@@ -141,7 +156,7 @@ final class Prefs {
     static void setShelf(List<String> packages) {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
-        put("shelf", sb.toString());
+        put(shelfKey(), sb.toString());
     }
 
     // MARK: - Remote buttons

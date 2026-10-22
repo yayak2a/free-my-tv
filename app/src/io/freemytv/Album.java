@@ -34,13 +34,14 @@ import java.util.Set;
  * Neither is documented by Apple, so either may change one day. Anyone with the link can see the album: make one
  * just for the TV.
  *
- * Up to 60 photos stay on disk, small (the card is 300 px); the album is checked every 30 minutes.
+ * Up to 60 photos stay on disk, about 1500 px (sharp full screen, decoded smaller for the 300 px card); the album is
+ * checked every 30 minutes.
  */
 final class Album {
     private static final long CHECK_EVERY = 30 * 60_000L, RETRY_AFTER = 10 * 60_000L;
     private static final int KEEP = 60, NEW_PER_CHECK = 20;
-    /** The smallest version at least this wide is downloaded (the card is 300 px; a little more stays sharp). */
-    private static final int WANT = 640;
+    /** The smallest version at least this wide is downloaded: sharp full screen, light on disk. */
+    private static final int WANT = 1400;
     private static final String CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
     interface Listener { void onAlbum(); }
@@ -61,6 +62,7 @@ final class Album {
     private volatile boolean fetching;
     private volatile long checkedAt, failedAt;
     private int next;
+    private volatile String shown = "";   // the photo on the card now: full screen starts there
 
     private Album(Context c) {
         context = c;
@@ -122,12 +124,44 @@ final class Album {
             String g = list.get(Math.floorMod(next++, list.size()));
             try {
                 Bitmap b = square(file(g), size);
-                if (b != null) return b;
+                if (b != null) {
+                    shown = g;
+                    return b;
+                }
             } catch (RuntimeException | OutOfMemoryError e) {
                 AppLog.w("album: photo: " + e.getMessage());
             }
         }
         return null;
+    }
+
+    /** The photos on disk, in the album's order. */
+    List<String> ready() {
+        List<String> list = new ArrayList<>();
+        for (String g : guids) if (file(g).exists()) list.add(g);
+        return list;
+    }
+
+    /** Where the card is in ready(): full screen opens on the photo you were looking at. */
+    int shownIndex() {
+        return Math.max(0, ready().indexOf(shown));
+    }
+
+    /** The photo decoded to fit within w × h (no larger than needed), or null. Off the main thread. */
+    Bitmap fit(String guid, int w, int h) {
+        File f = file(guid);
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = 1;
+        while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
+        try {
+            return BitmapFactory.decodeFile(f.getPath(), opts);
+        } catch (OutOfMemoryError e) {
+            return null;
+        }
     }
 
     private static Bitmap square(File f, int size) {
@@ -324,9 +358,9 @@ final class Album {
         done(order, key);
     }
 
-    /** The small JPEG's link (the medium one if the small one is missing), or null. */
+    /** The medium JPEG's link (~1500 px), else the full or large one, else the small one; null if none. */
     private static String download(JSONObject fields) {
-        for (String res : new String[] {"resJPEGThumbRes", "resJPEGMedRes"}) {
+        for (String res : new String[] {"resJPEGMedRes", "resJPEGFullRes", "resJPEGLargeRes", "resJPEGThumbRes"}) {
             JSONObject o = fields.optJSONObject(res);
             JSONObject v = o == null ? null : o.optJSONObject("value");
             String url = v == null ? "" : v.optString("downloadURL", "");
@@ -418,13 +452,14 @@ final class Album {
     }
 
     private File file(String guid) {
-        return new File(new File(context.getCacheDir(), "album"), guid + ".jpg");
+        // "-m": the larger photos (the small ones kept before are cleared by prune).
+        return new File(new File(context.getCacheDir(), "album"), guid + "-m.jpg");
     }
 
     /** Photos removed from the album (or past the 60 newest) leave the TV too. */
     private void prune(List<String> keep) {
         Set<String> names = new HashSet<>();
-        for (String g : keep) names.add(g + ".jpg");
+        for (String g : keep) names.add(file(g).getName());
         File[] files = new File(context.getCacheDir(), "album").listFiles();
         if (files == null) return;
         for (File f : files) {
