@@ -103,6 +103,7 @@ final class Russian {
             case "New code (4 digits)": return "Новый код (4 цифры)";
             case "4 digits": return "4 цифры";
             case "The home screen shows only the kid profile's apps. The code, on the gear, turns it off.": return "На главном экране только приложения детского профиля. Код на шестерёнке выключает его.";
+            case "My photos": return "Мои фото";
             case "Screensaver": return "Заставка";
             case "Nature": return "Природа";
             case "Movies and shows": return "Фильмы и сериалы";

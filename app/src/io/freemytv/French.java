@@ -96,6 +96,7 @@ final class French {
             case "New code (4 digits)": return "Nouveau code (4 chiffres)";
             case "4 digits": return "4 chiffres";
             case "The home screen shows only the kid profile's apps. The code, on the gear, turns it off.": return "L'accueil n'affiche que les applis du profil enfant. Le code, sur la roue crantée, le désactive.";
+            case "My photos": return "Mes photos";
             case "Screensaver": return "Économiseur d'écran";
             case "Nature": return "Nature";
             case "Movies and shows": return "Films et séries";

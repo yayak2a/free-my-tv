@@ -155,7 +155,8 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   come from those files too (patterns for the parts built at runtime). Add them all. Comments in English, short, only where the why
   isn't obvious.
 - The screensaver shows the picks' images, Unsplash's landscapes and animals (`Nature`, with the person's own free
-  Access Key in `unsplash_key`; never the Secret Key), or both, per *Home Settings* → *Screensaver*
+  Access Key in `unsplash_key`; never the Secret Key), both, or the iCloud album (portrait photos shown whole over
+  a blurred copy, `Backdrop.photo(..., fit)`), per *Home Settings* → *Screensaver*
   (`Prefs.screensaver`). Unsplash's rules: credit the photographer on screen and report each kept photo to its
   `download_location` once. The key follows the TMDB key's rules: theirs, never printed or committed.
 - The bottom drawer's cards: weather (with rain in the next 3 hours, air quality and pollen, all Open-Meteo, no key),

@@ -634,7 +634,7 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru", "fr"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        private static final String[] SCREENSAVERS = {"nature", "films", "both"};
+        private static final String[] SCREENSAVERS = {"nature", "films", "both", "album"};
         /** Home Settings: language, temperature, theme, screensaver, weather, city, quote of the day, age counter, photos,
          * quotes, then one row per coin. */
         private static final int SAVER_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, DAILY_ROW = 6, CHILD_ROW = 7, PHOTOS_ROW = 8,
@@ -682,7 +682,8 @@ public class SettingsActivity extends Activity {
             String theme = Prefs.theme();
             v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
             String saver = Prefs.screensaver();
-            v[SAVER_ROW] = saver.equals("nature") ? Ui.tr("Natureza", "Nature", "Naturaleza")
+            v[SAVER_ROW] = saver.equals("album") ? Ui.tr("Minhas fotos", "My photos", "Mis fotos")
+                    : saver.equals("nature") ? Ui.tr("Natureza", "Nature", "Naturaleza")
                     : saver.equals("films") ? Ui.tr("Filmes e séries", "Movies and shows", "Películas y series")
                     : Ui.tr("Os dois", "Both", "Ambos");
             v[WEATHER_ROW] = onOff(Prefs.weather());
@@ -769,8 +770,10 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 case SAVER_ROW: {
+                    // "My photos" only when there's an iCloud album.
+                    int n = Album.configured() ? SCREENSAVERS.length : SCREENSAVERS.length - 1;
                     int at = java.util.Arrays.asList(SCREENSAVERS).indexOf(Prefs.screensaver());
-                    Prefs.setScreensaver(SCREENSAVERS[(at + dir + SCREENSAVERS.length) % SCREENSAVERS.length]);
+                    Prefs.setScreensaver(SCREENSAVERS[(at + dir + n) % n]);
                     break;
                 }
                 case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;

@@ -453,7 +453,7 @@ final class Album {
         if (!part.renameTo(f)) throw new IOException("couldn't save the photo");
     }
 
-    private File file(String guid) {
+    File file(String guid) {
         // "-m": the larger photos (the small ones kept before are cleared by prune).
         return new File(new File(context.getCacheDir(), "album"), guid + "-m.jpg");
     }

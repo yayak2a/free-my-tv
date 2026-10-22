@@ -167,6 +167,8 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         lastFrame = 0;
         failed.clear();
         nature.newSession();
+        albumOrder = new java.util.ArrayList<>(Album.get(getContext()).ready());
+        java.util.Collections.shuffle(albumOrder);
         fallback = photos().isEmpty();
         data.addListener(this);
         recs.addListener(this);
@@ -261,6 +263,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     /** The photos for this screensaver, from the source picked in Home Settings (both: one of each in turn). */
     private List<Recs.Pick> photos() {
         String mode = Prefs.screensaver();
+        if (mode.equals("album")) return albumPicks();
         List<Recs.Pick> films = mode.equals("nature") ? new java.util.ArrayList<>() : recs.showcase();
         List<Recs.Pick> wild = mode.equals("films") ? new java.util.ArrayList<>() : nature.showcase();
         if (films.isEmpty()) return wild;
@@ -280,8 +283,37 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             recs.refreshIfStale();
             recs.prefetchAll();
         }
+        if (mode.equals("album")) {
+            Album.get(getContext()).refreshIfStale();
+            return;
+        }
         if (!mode.equals("films")) nature.refreshIfStale();
     }
+
+    /**
+     * Your iCloud album (Prefs.screensaver "album"): its photos in a new random order each time the screensaver
+     * starts, without a caption (the clock and the weather stay).
+     */
+    private List<Recs.Pick> albumPicks() {
+        List<Recs.Pick> out = new java.util.ArrayList<>();
+        java.util.Set<String> ready = new java.util.HashSet<>(Album.get(getContext()).ready());
+        for (String guid : albumOrder) {
+            if (!ready.contains(guid)) continue;
+            Recs.Pick p = new Recs.Pick();
+            p.kind = ALBUM;
+            p.id = guid.hashCode();
+            p.backdrop = guid;
+            p.title = "";
+            p.label = "";
+            p.meta = "";
+            p.detailed = true;
+            out.add(p);
+        }
+        return out;
+    }
+
+    private static final String ALBUM = "album";
+    private List<String> albumOrder = new java.util.ArrayList<>();
 
     /** Loads the next photo in the background (one at a time); once ready, it comes in at the right moment. */
     private void prepareNext() {
@@ -312,7 +344,9 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             prepared = newSlide(pick, last.image, last.frost, last.lightCaption, last.lightClock);
             return;
         }
-        File file = Nature.KIND.equals(pick.kind) ? nature.readyImage(pick) : recs.readyImage(pick);
+        File found = Nature.KIND.equals(pick.kind) ? nature.readyImage(pick)
+                : ALBUM.equals(pick.kind) ? Album.get(getContext()).file(pick.backdrop) : recs.readyImage(pick);
+        File file = found != null && found.exists() ? found : null;
         if (file == null) {
             failed.add(Recs.key(pick));   // the image is gone from disk: try the next one
             prepareNext();
@@ -325,7 +359,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             Bitmap[] images = null;
             float[] light = new float[2];
             try {
-                images = Backdrop.photo(file, PW, PH, light);
+                images = Backdrop.photo(file, PW, PH, light, ALBUM.equals(chosen.kind));
                 images[0] = Backdrop.gpu(withScrims(images[0], light[0], light[1]));
             } catch (Exception | OutOfMemoryError e) {
                 AppLog.w("screensaver: photo for “" + chosen.title + "”: " + e.getMessage());

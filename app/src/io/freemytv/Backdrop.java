@@ -106,6 +106,14 @@ final class Backdrop {
      * (bottom left) and the clock (top right) sit, for the scrims. Returns {photo (mutable), frosted}.
      */
     static Bitmap[] photo(java.io.File f, int w, int h, float[] light) throws java.io.IOException {
+        return photo(f, w, h, light, false);
+    }
+
+    /**
+     * With `fit` (your own photos): a portrait or square photo isn't cropped to the screen's shape but shown whole,
+     * over a blurred, darkened copy of itself filling the screen.
+     */
+    static Bitmap[] photo(java.io.File f, int w, int h, float[] light, boolean fit) throws java.io.IOException {
         android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         android.graphics.BitmapFactory.decodeFile(f.getPath(), bounds);
@@ -116,6 +124,7 @@ final class Backdrop {
         Bitmap src = android.graphics.BitmapFactory.decodeFile(f.getPath(), opts);
         if (src == null) throw new java.io.IOException("unreadable image");
         float ratio = (float) w / h;
+        if (fit && src.getWidth() < src.getHeight() * ratio * 0.8f) return finish(fitted(src, w, h), w, h, light);
         int cw = Math.min(src.getWidth(), Math.round(src.getHeight() * ratio));
         int ch = Math.min(src.getHeight(), Math.round(cw / ratio));
         Bitmap b = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
@@ -127,6 +136,29 @@ final class Backdrop {
         }
         Bitmap out = b.getWidth() == w && b.getHeight() == h ? b : Bitmap.createScaledBitmap(b, w, h, true);
         if (out != b) b.recycle();
+        return finish(out, w, h, light);
+    }
+
+    /** The whole photo, as tall as the screen, on a blurred copy of itself (darkened so the photo stands out). */
+    private static Bitmap fitted(Bitmap src, int w, int h) {
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+        // Tiny, then stretched over the screen with filtering: a soft blur.
+        Bitmap tiny = Bitmap.createScaledBitmap(src, 24, Math.max(1, Math.round(24f * src.getHeight() / src.getWidth())), true);
+        float cover = Math.max((float) w / tiny.getWidth(), (float) h / tiny.getHeight());
+        float tw = tiny.getWidth() * cover, th = tiny.getHeight() * cover;
+        c.drawBitmap(tiny, null, new RectF((w - tw) / 2, (h - th) / 2, (w + tw) / 2, (h + th) / 2), p);
+        tiny.recycle();
+        c.drawColor(0x8C000000);
+        float s = Math.min((float) w / src.getWidth(), (float) h / src.getHeight());
+        float pw = src.getWidth() * s, ph = src.getHeight() * s;
+        c.drawBitmap(src, null, new RectF((w - pw) / 2, (h - ph) / 2, (w + pw) / 2, (h + ph) / 2), p);
+        src.recycle();
+        return out;
+    }
+
+    private static Bitmap[] finish(Bitmap out, int w, int h, float[] light) {
         if (light != null && light.length >= 2) {
             light[0] = luminance(out, 0, 0.6f, 0.5f, 0.95f);
             light[1] = luminance(out, 0.62f, 0.04f, 0.96f, 0.36f);
